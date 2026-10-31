@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: wxbot
+  datasource:
+    url: "jdbc:mysql://localhost:3306/wxbot?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&enabledTLSProtocols=TLSv1.2"
+    username: root
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+
+ai:
+  api:
+    base-url: "https://maas.qianwenaiapi.com/compatible-mode/v1"
+    key: ${QWEN_API_KEY}
+    model: "deepseek-v4.1-flash"
+    max-tokens: 6000
+    temperature: 0.2
+    http:
+      connect-timeout: 5000
+      read-timeout: 60000
