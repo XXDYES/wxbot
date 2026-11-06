@@ -13,14 +13,14 @@ import java.util.concurrent.ExecutorService;
 
 @Service
 @Slf4j
-public class LoginService {
+public class BotService {
     @Autowired
     @Qualifier("botExecutor")
     private ExecutorService botExecutor;
     @Autowired
     private PollingService pollingService;
 
-    public String login(ILinkClient client){
+    public String botLogin(ILinkClient client){
         String qrcode = client.executeLogin();
         botExecutor.submit(()->{
             try {

@@ -1,0 +1,56 @@
+package org.example.wxbot.interceptor;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.example.wxbot.common.JwtUtil;
+import org.example.wxbot.common.UserContext;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+
+@Component
+public class JwtInterceptor implements HandlerInterceptor {
+
+    private final JwtUtil jwtUtil;
+
+    public JwtInterceptor(JwtUtil jwtUtil) {
+        this.jwtUtil = jwtUtil;
+    }
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+            throws Exception{
+        String path = request.getRequestURI();
+        // 1. 从请求头中获取 Token
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")){
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":401,\"msg\":\"未登录，缺少Token\"}");
+            return false;
+        }
+        // 2. 提取 Token（去掉 "Bearer " 前缀）
+        String token = authHeader.substring(7);
+        // 3. 校验 Token
+        if (!jwtUtil.validateToken(token)) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":401,\"msg\":\"Token无效或已过期\"}");
+            return false;
+        }
+        // 4. 解析 Token，获取用户信息
+        Integer userId = jwtUtil.getUserIdFromToken(token);
+        String username = jwtUtil.getUsernameFromToken(token);
+
+        // 5. 将用户信息存入当前线程上下文
+        UserContext.setCurrentUser(userId, username);
+
+        // 6. 放行
+        return true;
+    }
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        // 请求结束后清除用户信息，防止内存泄漏
+        UserContext.clear();
+    }
+
+}

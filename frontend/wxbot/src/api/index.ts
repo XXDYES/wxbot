@@ -1,3 +1,4 @@
 import botApi from "./bot";
+import userApi from "./user";
 
-export default {botApi}
+export default {botApi,userApi}

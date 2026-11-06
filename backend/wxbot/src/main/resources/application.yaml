@@ -18,3 +18,7 @@ ai:
     http:
       connect-timeout: 5000
       read-timeout: 60000
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
