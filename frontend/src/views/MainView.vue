@@ -20,7 +20,7 @@
                     </div>
                     <div style="display: flex;flex-direction: column;gap: 10px;">
                         <el-button class="gradient-button" @click="createBot" style="width: 120px;margin: 0 auto;">
-                            生成二维码</el-button>
+                            创建机器人</el-button>
                         <div class="qrcode-box" v-if="!qrContent">
                             暂无二维码<br>点击上方按钮生成
                         </div>
@@ -126,6 +126,7 @@
                         </div>
                         <el-input v-model="persona" class="ai-persona" type="textarea" 
                         :rows="4" resize="none" :disabled="!editPersona"
+                            maxlength="300" show-word-limit
                             placeholder="请输入机器人的人设与回复风格" />
                     </div>
 
@@ -214,7 +215,7 @@ const setPersona = async(persona: string) => {
         editPersona.value = false
         copyPersona.value = ""
         ElMessage.success("修改人设成功")
-    }
+    }else{ElMessage.error("超过300字上限")}
 }
 const loginout = () => {
     loginVisible.value = true

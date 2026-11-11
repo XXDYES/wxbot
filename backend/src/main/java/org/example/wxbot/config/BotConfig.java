@@ -9,7 +9,7 @@ import java.util.concurrent.Semaphore;
 
 @Configuration
 public class BotConfig {
-    @Bean(name = "botExecutor",destroyMethod = "close")
+    @Bean(name = "botExecutor", destroyMethod = "shutdownNow")
     public ExecutorService botExecutor(){
         return Executors.newVirtualThreadPerTaskExecutor();
     }

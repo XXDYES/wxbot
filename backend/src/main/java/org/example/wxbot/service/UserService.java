@@ -84,6 +84,9 @@ public class UserService {
         if (persona == null) {
             throw new BusinessException("人设不能为空");
         }
+        if (persona.length() > 300) {
+            throw new BusinessException("人设不能超过300个字符");
+        }
 
         UserAi current = userAiManager.get(userId);
         UserAi update = new UserAi();

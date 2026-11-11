@@ -5,13 +5,17 @@ import com.github.wechat.ilink.sdk.core.exception.NotLoginException;
 import com.github.wechat.ilink.sdk.core.exception.SessionExpiredException;
 import com.github.wechat.ilink.sdk.core.model.MessageItem;
 import com.github.wechat.ilink.sdk.core.model.WeixinMessage;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.example.wxbot.manager.BotClientManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 
 @Slf4j
@@ -23,20 +27,52 @@ public class PollingService {
     private ExecutorService botExecutor;
     @Autowired
     private AiService aiService;
+    @Autowired
+    private BotClientManager botClientManager;
+
+    private final Map<Integer, Thread> pollingThreads = new ConcurrentHashMap<>();
+
+    @PreDestroy
+    public void shutdown() {
+        pollingThreads.values().forEach(Thread::interrupt);
+        pollingThreads.clear();
+    }
 
     public void startPolling(ILinkClient client, Integer userId) {
         botExecutor.submit(() -> {
-            while (!Thread.currentThread().isInterrupted()) {
+            Thread pollingThread = Thread.currentThread();
+            pollingThreads.put(userId, pollingThread);
+            try {
+                poll(client, userId);
+            } finally {
+                pollingThreads.remove(userId, pollingThread);
+            }
+        });
+    }
+
+    private void poll(ILinkClient client, Integer userId) {
+        while (!Thread.currentThread().isInterrupted()
+                && !botClientManager.isShuttingDown()) {
                 List<WeixinMessage> messages;
                 try {
                     messages = client.getUpdates();
+                    if (botClientManager.isShuttingDown()) {
+                        break;
+                    }
+                    botClientManager.saveUpdatesCursor(userId, client);
                 }catch (SessionExpiredException exception){
                     log.warn("机器人会话已失效，停止轮询 | userId={}", userId);
+                    botClientManager.invalidateSession(userId, client);
                     break;
                 } catch (NotLoginException exception) {
                     log.error("机器人已掉线", exception);
+                    botClientManager.invalidateSession(userId, client);
                     break;
                 } catch (Exception exception) {
+                    if (botClientManager.isShuttingDown()
+                            || Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
                     log.warn("消息拉取失败，3 秒后重试", exception);
                     try {
                         Thread.sleep(3000);
@@ -50,8 +86,11 @@ public class PollingService {
                 for (WeixinMessage message : messages) {
                     try {
                         String fromUserId = message.getFrom_user_id();
+                        if (fromUserId == null
+                                || !Integer.valueOf(1).equals(message.getMessage_type())) continue;
                         String text = extractText(message);
-                        if (fromUserId == null || text == null) {
+                        if (text == null) {
+                            client.sendText(fromUserId, "抱歉，暂仅支持语音和文字消息");
                             continue;
                         }
                         Long sentAt = message.getCreate_time_ms();
@@ -74,16 +113,20 @@ public class PollingService {
                                 message.getMessage_id(), exception);
                     }
                 }
-            }
-        });
+        }
     }
 
     private void replyWithTyping(ILinkClient client, Integer userId, String fromUserId, String text)
             throws IOException {
         client.startTyping(fromUserId);
         try {
-            String answer = aiService.aiResponse(userId, text);
-            client.sendText(fromUserId, answer);
+            aiService.aiResponse(userId, text, message -> {
+                try {
+                    client.sendText(fromUserId, message);
+                } catch (IOException exception) {
+                    throw new RuntimeException("发送 AI 回复失败", exception);
+                }
+            });
         } finally {
             try {
                 client.stopTyping(fromUserId);
@@ -94,23 +137,22 @@ public class PollingService {
     }
 
     private String extractText(WeixinMessage message) {
-        // 只处理用户发送的消息，机器人自己发送的消息 type 为 2。
-        if (!Integer.valueOf(1).equals(message.getMessage_type())) {
-            return null;
-        }
         if (message.getItem_list() == null || message.getItem_list().isEmpty()) {
             return null;
         }
 
         StringBuilder text = new StringBuilder();
+        boolean supported = true;
         for (MessageItem item : message.getItem_list()) {
             if (item.getText_item() != null && item.getText_item().getText() != null) {
                 text.append(item.getText_item().getText());
             } else if (item.getVoice_item() != null && item.getVoice_item().getText() != null) {
                 text.append(item.getVoice_item().getText());
+            } else if (item.getVoice_item() == null) {
+                supported = false;
             }
         }
         String result = text.toString().trim();
-        return result.isEmpty() ? null : result;
+        return supported && !result.isEmpty() ? result : null;
     }
 }

@@ -7,10 +7,12 @@ import org.example.wxbot.exception.BusinessException;
 import org.example.wxbot.mapper.UserAiMapper;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 
 @Slf4j
 @Component
@@ -19,17 +21,27 @@ public class UserAiManager implements ApplicationRunner {
     private final Map<Integer, UserAi> cache = new ConcurrentHashMap<>();
     private final UserAiMapper userAiMapper;
     private final AiConfig aiConfig;
+    private final ExecutorService botExecutor;
 
-    public UserAiManager(UserAiMapper userAiMapper, AiConfig aiConfig) {
+    public UserAiManager(
+            UserAiMapper userAiMapper,
+            AiConfig aiConfig,
+            @Qualifier("botExecutor") ExecutorService botExecutor
+    ) {
         this.userAiMapper = userAiMapper;
         this.aiConfig = aiConfig;
+        this.botExecutor = botExecutor;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        botExecutor.submit(this::preload);
+    }
+
+    private void preload() {
         try {
             userAiMapper.selectList(null)
-                    .forEach(config -> cache.put(config.getUserId(), config));
+                    .forEach(config -> cache.putIfAbsent(config.getUserId(), config));
             log.info("用户 AI 配置缓存加载完成，共 {} 条", cache.size());
         } catch (Exception exception) {
             // 数据库暂时不可用时仍允许应用启动，后续访问会按 userId 回源。

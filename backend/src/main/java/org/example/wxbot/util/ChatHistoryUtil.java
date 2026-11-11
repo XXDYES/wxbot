@@ -17,7 +17,7 @@ public class ChatHistoryUtil {
 
     private static final String KEY_PREFIX = "bot:chat:history:";
     private static final int MAX_ITEMS = 20;
-    private static final Duration TTL = Duration.ofHours(24);
+    private static final Duration TTL = Duration.ofHours(72);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
