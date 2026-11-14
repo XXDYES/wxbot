@@ -5,11 +5,6 @@
             <el-button type="danger" style="margin-left: auto;margin-right: 20px;" @click="loginout()">
                 退出登录
             </el-button>
-            <!-- <div style="margin-right: 20px;">
-                <el-avatar :size="50" class="user-avatar">
-                    <span style="font-size: 35px;">{{ (userInfo?.username || '?').charAt(0) }}</span>
-                </el-avatar>
-            </div> -->
         </div>
         <div class="content-container">
             <!-- 第一列 -->
@@ -26,6 +21,33 @@
                         </div>
                         <qrcode-vue v-if="qrContent" :value="qrContent" :size="130" level="H" />
                         <div style="text-align: center;" v-if="qrContent">微信扫码</div>
+                    </div>
+                    <div style="flex: 1;height: 80%;display: flex;
+                    padding: 10px;flex-wrap: wrap;gap: 10px;justify-content: center;">
+                        <div class="bot-info-card" style="height: 45%;width: 45%;">
+                            <span class="bot-info-label">今日对话次数</span>
+                            <div class="bot-info-value">
+                                {{chatTimesToday}}<span class="bot-info-unit">次</span>
+                            </div>
+                        </div>
+                        <div class="bot-info-card" style="height: 45%;width: 45%;">
+                            <span class="bot-info-label">历史对话次数</span>
+                            <div class="bot-info-value">
+                                {{chatTimesHistory}}<span class="bot-info-unit">次</span>
+                            </div>
+                        </div>
+                        <div class="bot-info-card" style="height: 45%;width: 45%;">
+                            <span class="bot-info-label">今日消耗 TOKEN</span>
+                            <div class="bot-info-value">
+                                {{ tokenTodayDisplay.value }}<span class="bot-info-unit">{{ tokenTodayDisplay.unit }}</span>
+                            </div>
+                        </div>
+                        <div class="bot-info-card" style="height: 45%;width: 45%;">
+                            <span class="bot-info-label">历史消耗 TOKEN</span>
+                            <div class="bot-info-value">
+                                {{ tokenHistoryDisplay.value }}<span class="bot-info-unit">{{ tokenHistoryDisplay.unit }}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="tab-base" style="flex: 1;width: 100%;margin-top: 20px;">
@@ -48,7 +70,7 @@
                                     </el-icon>
                                 </el-button>
                             </el-tooltip>
-                            <el-tooltip class="box-item" effect="dark" content="重载配置" placement="bottom">
+                            <el-tooltip class="box-item" effect="dark" content="清空上下文" placement="bottom">
                                 <el-button circle class="switch-button switch-button--yellow" aria-label="刷新">
                                     <el-icon>
                                         <RefreshRight />
@@ -130,17 +152,7 @@
                             placeholder="请输入机器人的人设与回复风格" />
                     </div>
 
-                    <div class="ai-section">
-                        <div class="ai-field-head">
-                            <span class="ai-field-label">知识库</span>
-                            <el-button class="ai-add-button" circle size="small" aria-label="添加知识库">
-                                +
-                            </el-button>
-                        </div>
-                        <div class="ai-panel" style="height: 15vh;">
-                            <span>暂无知识库</span>
-                        </div>
-                    </div>
+                    <LibraryPanel />
 
                     <div class="ai-section ai-schedule-section">
                         <div class="ai-field-head">
@@ -164,10 +176,11 @@
 import botApi from '@/api/bot';
 import userApi from '@/api/user';
 import LoginDialog from '@/components/LoginDialog.vue';
+import LibraryPanel from '@/components/LibraryPanel.vue';
 import { Switch, RefreshRight, SwitchButton, Edit, Select, CloseBold } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import QrcodeVue from 'qrcode.vue';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import axios from 'axios'
 
 const userInfo = ref({ id: "", username: "" })
@@ -178,6 +191,18 @@ const copyPersona = ref("")
 const loginVisible = ref(false)
 const editPersona = ref(false)
 const qrContent = ref("")
+const chatTimesToday = ref(0)
+const chatTimesHistory = ref(0)
+const tokenToday = ref(0)
+const tokenHistory = ref(0)
+const formatToken = (value: number) => {
+    if (value >= 1_000_000_000) return { value: (value / 1_000_000_000).toFixed(2), unit: 'B' }
+    if (value >= 1_000_000) return { value: (value / 1_000_000).toFixed(2), unit: 'M' }
+    if (value >= 1_000) return { value: (value / 1_000).toFixed(2), unit: 'K' }
+    return { value: String(value), unit: '' }
+}
+const tokenTodayDisplay = computed(() => formatToken(tokenToday.value))
+const tokenHistoryDisplay = computed(() => formatToken(tokenHistory.value))
 const createBot = async () => {
     const res = await botApi.createBot()
     if (res.data.code == '200') {
@@ -193,6 +218,7 @@ const getUserInfo = async () => {
         if (res.data.code === '200') {
             userInfo.value = res.data.data
             await getAiSetting()
+            await getUsage()
         }
     } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 401) {
@@ -207,6 +233,15 @@ const getAiSetting = async() => {
         model.value = aiSetting.model
         thinking.value = aiSetting.reasoningEffort
         persona.value = aiSetting.persona
+    }
+}
+const getUsage = async() => {
+    const res = await userApi.getUsage()
+    if (res.data.code === "200") {
+        chatTimesToday.value = res.data.data.chatTimesToday
+        chatTimesHistory.value = res.data.data.chatTimesHistory
+        tokenToday.value = res.data.data.tokenToday
+        tokenHistory.value = res.data.data.tokenHistory
     }
 }
 const setPersona = async(persona: string) => {
@@ -334,6 +369,44 @@ onMounted(() => {
     box-sizing: border-box;
     text-align: center;
     color: #a8abb2;
+}
+
+.bot-info-card {
+    min-width: 0;
+    box-sizing: border-box;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    text-align: center;
+}
+
+.bot-info-label {
+    color: #6b7280;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.bot-info-value {
+    color: #1f2937;
+    font-size: 24px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.bot-info-unit {
+    margin-left: 2px;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 400;
 }
 
 .switch-button {
@@ -518,6 +591,25 @@ onMounted(() => {
     background: #f8fafc;
     box-shadow: 0 0 0 1px #e5e7eb inset;
     resize: none;
+}
+
+.ai-persona :deep(.el-textarea__inner) {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+.ai-persona :deep(.el-textarea__inner)::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.ai-persona :deep(.el-textarea__inner)::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #cbd5e1;
+}
+
+.ai-persona :deep(.el-textarea__inner)::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .ai-persona :deep(.el-textarea__inner:focus) {

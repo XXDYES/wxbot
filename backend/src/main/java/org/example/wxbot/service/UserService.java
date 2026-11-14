@@ -4,13 +4,18 @@ import jakarta.annotation.Resource;
 import org.example.wxbot.entity.Register;
 import org.example.wxbot.entity.User;
 import org.example.wxbot.entity.UserAi;
+import org.example.wxbot.entity.UserLibrary;
 import org.example.wxbot.exception.BusinessException;
+import org.example.wxbot.manager.LibraryManager;
 import org.example.wxbot.manager.UserAiManager;
 import org.example.wxbot.mapper.UserAiMapper;
+import org.example.wxbot.mapper.UserLibraryMapper;
 import org.example.wxbot.mapper.UserMapper;
 import org.example.wxbot.util.EncodeUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 @Service
 public class UserService {
@@ -21,6 +26,10 @@ public class UserService {
     private UserAiMapper userAiMapper;
     @Autowired
     private UserAiManager userAiManager;
+    @Autowired
+    private UserLibraryMapper userLibraryMapper;
+    @Autowired
+    private LibraryManager libraryManager;
 
     public User login(User user) {
         if (user.getUsername() == null || user.getUsername().isBlank()) {
@@ -98,5 +107,64 @@ public class UserService {
 
         current.setPersona(persona);
         userAiManager.put(current);
+    }
+    public List<UserLibrary> getLibrary(Integer userId){
+        return userLibraryMapper.selectByUserId(userId);
+    }
+    public void addLibrary(UserLibrary userLibrary){
+        validateLibrary(userLibrary, null);
+        userLibraryMapper.insert(userLibrary);
+        libraryManager.put(userLibrary);
+    }
+
+    public void updateLibrary(UserLibrary userLibrary, Integer userId) {
+        getOwnedLibrary(userLibrary.getId(), userId);
+        userLibrary.setUserId(userId);
+        validateLibrary(userLibrary, userLibrary.getId());
+        if (userLibraryMapper.updateById(userLibrary) <= 0) {
+            throw new BusinessException("知识库修改失败");
+        }
+        libraryManager.put(userLibrary);
+    }
+
+    public void deleteLibrary(Integer id, Integer userId) {
+        getOwnedLibrary(id, userId);
+        if (userLibraryMapper.deleteById(id) <= 0) {
+            throw new BusinessException("知识库删除失败");
+        }
+        libraryManager.remove(userId, id);
+    }
+
+    private UserLibrary getOwnedLibrary(Integer id, Integer userId) {
+        UserLibrary library = id == null ? null : userLibraryMapper.selectById(id);
+        if (library == null || !userId.equals(library.getUserId())) {
+            throw new BusinessException("知识库不存在");
+        }
+        return library;
+    }
+
+    private void validateLibrary(UserLibrary userLibrary, Integer excludeId) {
+        if (userLibrary.getTitle() == null || userLibrary.getTitle().isBlank()) {
+            throw new BusinessException("标题不能为空");
+        }
+        if (userLibrary.getTitle().length() > 15) {
+            throw new BusinessException("标题不能超过15个字");
+        }
+        if (userLibrary.getDescription() != null
+                && userLibrary.getDescription().length() > 50) {
+            throw new BusinessException("描述不能超过50个字");
+        }
+        if (userLibrary.getContent() == null || userLibrary.getContent().isBlank()) {
+            throw new BusinessException("内容不能为空");
+        }
+
+        long existingLength = userLibraryMapper.selectByUserId(userLibrary.getUserId())
+                .stream()
+                .filter(item -> excludeId == null || !excludeId.equals(item.getId()))
+                .mapToLong(item -> item.getContent() == null ? 0 : item.getContent().length())
+                .sum();
+        if (existingLength + userLibrary.getContent().length() > 10_000) {
+            throw new BusinessException("知识库内容总字数不能超过10000字");
+        }
     }
 }

@@ -7,6 +7,7 @@ import com.github.wechat.ilink.sdk.core.model.MessageItem;
 import com.github.wechat.ilink.sdk.core.model.WeixinMessage;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.example.wxbot.exception.BusinessException;
 import org.example.wxbot.manager.BotClientManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -22,6 +23,8 @@ import java.util.concurrent.ExecutorService;
 @Service
 public class PollingService {
 
+    private static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
     @Autowired
     @Qualifier("botExecutor")
     private ExecutorService botExecutor;
@@ -29,6 +32,8 @@ public class PollingService {
     private AiService aiService;
     @Autowired
     private BotClientManager botClientManager;
+    @Autowired
+    private BotCommandService botCommandService;
 
     private final Map<Integer, Thread> pollingThreads = new ConcurrentHashMap<>();
 
@@ -88,9 +93,14 @@ public class PollingService {
                         String fromUserId = message.getFrom_user_id();
                         if (fromUserId == null
                                 || !Integer.valueOf(1).equals(message.getMessage_type())) continue;
-                        String text = extractText(message);
-                        if (text == null) {
-                            client.sendText(fromUserId, "抱歉，暂仅支持语音和文字消息");
+                        MessageContent content = extractContent(message);
+                        if (botCommandService.handle(
+                                client, userId, fromUserId, content.text())) {
+                            continue;
+                        }
+                        if (content.unsupported()
+                                || (content.text() == null && content.image() == null)) {
+                            client.sendText(fromUserId, "抱歉，暂仅支持语音、文字和图片消息");
                             continue;
                         }
                         Long sentAt = message.getCreate_time_ms();
@@ -98,12 +108,19 @@ public class PollingService {
                                 ? null
                                 : System.currentTimeMillis() - sentAt;
 
-                        log.info("收到 [{}] 的消息: {}, messageId={}, 延迟={}ms",
-                                fromUserId, text, message.getMessage_id(),
+                        log.info("收到 [{}] 的消息: {}, 延迟={}ms",
+                                fromUserId,
+                                content.text() == null ? "[图片]" : content.text(),
                                 delayMs == null ? "未知" : delayMs);
                         botExecutor.submit(() -> {
                             try {
-                                replyWithTyping(client, userId, fromUserId, text);
+                                replyWithTyping(
+                                        client,
+                                        userId,
+                                        fromUserId,
+                                        content.text(),
+                                        content.image()
+                                );
                             } catch (Exception exception) {
                                 log.error("AI 回复失败", exception);
                             }
@@ -116,17 +133,37 @@ public class PollingService {
         }
     }
 
-    private void replyWithTyping(ILinkClient client, Integer userId, String fromUserId, String text)
+    private void replyWithTyping(
+            ILinkClient client,
+            Integer userId,
+            String fromUserId,
+            String text,
+            MessageItem imageItem
+    )
             throws IOException {
         client.startTyping(fromUserId);
         try {
-            aiService.aiResponse(userId, text, message -> {
+            byte[] image = imageItem == null
+                    ? null
+                    : client.downloadImageFromMessageItem(imageItem);
+            if (image != null && image.length > MAX_IMAGE_BYTES) {
+                image = client.downloadImageThumbFromMessageItem(imageItem);
+            }
+            aiService.aiResponse(userId, text, image, message -> {
                 try {
                     client.sendText(fromUserId, message);
                 } catch (IOException exception) {
                     throw new RuntimeException("发送 AI 回复失败", exception);
                 }
             });
+        } catch (BusinessException exception) {
+            String errorMessage = exception.getMsg();
+            client.sendText(
+                    fromUserId,
+                    errorMessage == null || errorMessage.isBlank()
+                            ? "消息处理失败，请稍后重试"
+                            : errorMessage
+            );
         } finally {
             try {
                 client.stopTyping(fromUserId);
@@ -136,23 +173,29 @@ public class PollingService {
         }
     }
 
-    private String extractText(WeixinMessage message) {
+    private MessageContent extractContent(WeixinMessage message) {
         if (message.getItem_list() == null || message.getItem_list().isEmpty()) {
-            return null;
+            return new MessageContent(null, null, false);
         }
 
         StringBuilder text = new StringBuilder();
-        boolean supported = true;
+        MessageItem image = null;
+        boolean unsupported = false;
         for (MessageItem item : message.getItem_list()) {
             if (item.getText_item() != null && item.getText_item().getText() != null) {
                 text.append(item.getText_item().getText());
             } else if (item.getVoice_item() != null && item.getVoice_item().getText() != null) {
                 text.append(item.getVoice_item().getText());
-            } else if (item.getVoice_item() == null) {
-                supported = false;
+            } else if (item.getImage_item() != null && image == null) {
+                image = item;
+            } else if (item.getVoice_item() == null && item.getImage_item() == null) {
+                unsupported = true;
             }
         }
         String result = text.toString().trim();
-        return supported && !result.isEmpty() ? result : null;
+        return new MessageContent(result.isEmpty() ? null : result, image, unsupported);
+    }
+
+    private record MessageContent(String text, MessageItem image, boolean unsupported) {
     }
 }

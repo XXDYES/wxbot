@@ -6,10 +6,15 @@ import org.example.wxbot.common.UserContext;
 import org.example.wxbot.entity.Register;
 import org.example.wxbot.entity.User;
 import org.example.wxbot.entity.UserAi;
+import org.example.wxbot.entity.UserLibrary;
+import org.example.wxbot.service.AiService;
 import org.example.wxbot.service.UserService;
 import org.example.wxbot.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 
 import java.util.Map;
 
@@ -20,6 +25,8 @@ public class UserController {
     private UserService userService;
     @Autowired
     private JwtUtil jwtUtil;
+    @Autowired
+    private AiService aiService;
     @PostMapping("/login")
     public Result<String> login(@RequestBody User user){
         User dbUser = userService.login(user);
@@ -51,10 +58,39 @@ public class UserController {
         UserAi userAi = userService.getAiSetting(userId);
         return Result.success(userAi);
     }
+
+    @GetMapping("/getUsage")
+    public Result<Map<String, Long>> getUsage(){
+        return Result.success(aiService.getUsage(UserContext.getCurrentId()));
+    }
+
     @PutMapping("/setPersona")
     public Result<Void> setPersona(@RequestBody Map<String, String> request){
         Integer userId = UserContext.getCurrentId();
         userService.setPersona(userId, request.get("persona"));
+        return Result.success();
+    }
+    @GetMapping("getLibrary")
+    public Result<List<UserLibrary>> getLibrary(){
+        Integer userId = UserContext.getCurrentId();
+        return Result.success(userService.getLibrary(userId));
+    }
+    @PostMapping("/addLibrary")
+    public Result addLibray(@RequestBody UserLibrary userLibrary){
+        userLibrary.setUserId(UserContext.getCurrentId());
+        userService.addLibrary(userLibrary);
+        return Result.success();
+    }
+
+    @PutMapping("/updateLibrary")
+    public Result updateLibrary(@RequestBody UserLibrary userLibrary){
+        userService.updateLibrary(userLibrary, UserContext.getCurrentId());
+        return Result.success();
+    }
+
+    @DeleteMapping("/deleteLibrary/{id}")
+    public Result deleteLibrary(@PathVariable Integer id){
+        userService.deleteLibrary(id, UserContext.getCurrentId());
         return Result.success();
     }
 }
