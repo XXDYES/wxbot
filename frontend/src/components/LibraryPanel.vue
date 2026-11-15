@@ -47,7 +47,7 @@
                     <el-input v-model="form.title" placeholder="请输入知识库标题" clearable />
                 </el-form-item>
                 <el-form-item label="描述" prop="description">
-                    <el-input v-model="form.description" placeholder="请输入知识库描述" clearable />
+                    <el-input v-model="form.description" placeholder="请输入知识库描述(可空)" clearable />
                 </el-form-item>
                 <el-form-item label="内容" prop="content">
                     <el-input v-model="form.content" type="textarea" :rows="11" resize="none"
@@ -217,8 +217,9 @@ onMounted(() => {
     width: 100%;
     min-width: 0;
     max-width: 100%;
-    min-height: 15vh;
-    padding: 10px;
+    min-height: 112px;
+    padding: 8px;
+    box-sizing: border-box;
     overflow-x: auto;
     border: 1px dashed #d9dde3;
     border-radius: 10px;
@@ -229,12 +230,12 @@ onMounted(() => {
     position: relative;
     display: flex;
     flex: 0 0 124px;
-    height: 124px;
+    height: 96px;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    padding: 28px 10px 12px;
+    padding: 24px 8px 9px;
     overflow: hidden;
     border: 1.5px solid #cbd5e1;
     border-radius: 12px;
@@ -277,13 +278,13 @@ onMounted(() => {
 }
 
 .library-item__icon {
-    font-size: 36px;
+    font-size: 30px;
     line-height: 1;
 }
 
 .library-item__title {
     width: 100%;
-    margin-top: 10px;
+    margin-top: 6px;
     overflow: hidden;
     color: #303133;
     font-size: 13px;

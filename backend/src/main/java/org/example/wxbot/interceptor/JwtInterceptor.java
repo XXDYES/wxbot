@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.example.wxbot.common.UserContext;
 import org.example.wxbot.util.JwtUtil;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -43,6 +44,7 @@ public class JwtInterceptor implements HandlerInterceptor {
 
         // 5. 将用户信息存入当前线程上下文
         UserContext.setCurrentUser(userId, username);
+        MDC.put("userId", String.valueOf(userId));
 
         // 6. 放行
         return true;
@@ -51,6 +53,7 @@ public class JwtInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
         // 请求结束后清除用户信息，防止内存泄漏
         UserContext.clear();
+        MDC.clear();
     }
 
 }

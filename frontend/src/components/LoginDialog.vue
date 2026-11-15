@@ -101,6 +101,9 @@ import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 const visible = defineModel<boolean>({ default: false })
+const emit = defineEmits<{
+    loginSuccess: []
+}>()
 const activeTab = ref('login')
 const loginFormRef = ref<FormInstance>()
 const registerFormRef = ref<FormInstance>()
@@ -213,6 +216,7 @@ const login = async(form:LoginForm) => {
         localStorage.setItem("userToken", token)
         ElMessage.success('登录成功')
         visible.value = false
+        emit('loginSuccess')
     }else{ElMessage.error(res.data.msg)}
 }
 const register = async(form:RegisterForm) => {

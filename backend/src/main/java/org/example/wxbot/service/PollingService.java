@@ -9,6 +9,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.example.wxbot.exception.BusinessException;
 import org.example.wxbot.manager.BotClientManager;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -47,7 +48,8 @@ public class PollingService {
         botExecutor.submit(() -> {
             Thread pollingThread = Thread.currentThread();
             pollingThreads.put(userId, pollingThread);
-            try {
+            try (MDC.MDCCloseable ignored =
+                         MDC.putCloseable("userId", String.valueOf(userId))) {
                 poll(client, userId);
             } finally {
                 pollingThreads.remove(userId, pollingThread);
@@ -55,13 +57,25 @@ public class PollingService {
         });
     }
 
+    public void stopPolling(Integer userId) {
+        if (userId == null) {
+            return;
+        }
+        Thread thread = pollingThreads.remove(userId);
+        if (thread != null) {
+            thread.interrupt();
+        }
+    }
+
     private void poll(ILinkClient client, Integer userId) {
         while (!Thread.currentThread().isInterrupted()
-                && !botClientManager.isShuttingDown()) {
+                && !botClientManager.isShuttingDown()
+                && botClientManager.get(userId) == client) {
                 List<WeixinMessage> messages;
                 try {
                     messages = client.getUpdates();
-                    if (botClientManager.isShuttingDown()) {
+                    if (botClientManager.isShuttingDown()
+                            || botClientManager.get(userId) != client) {
                         break;
                     }
                     botClientManager.saveUpdatesCursor(userId, client);
@@ -75,7 +89,8 @@ public class PollingService {
                     break;
                 } catch (Exception exception) {
                     if (botClientManager.isShuttingDown()
-                            || Thread.currentThread().isInterrupted()) {
+                            || Thread.currentThread().isInterrupted()
+                            || botClientManager.get(userId) != client) {
                         break;
                     }
                     log.warn("消息拉取失败，3 秒后重试", exception);
@@ -113,7 +128,11 @@ public class PollingService {
                                 content.text() == null ? "[图片]" : content.text(),
                                 delayMs == null ? "未知" : delayMs);
                         botExecutor.submit(() -> {
-                            try {
+                            try (MDC.MDCCloseable ignored =
+                                         MDC.putCloseable(
+                                                 "userId",
+                                                 String.valueOf(userId)
+                                         )) {
                                 replyWithTyping(
                                         client,
                                         userId,

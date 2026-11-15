@@ -2,6 +2,7 @@ package org.example.wxbot.service;
 
 import org.apache.tika.Tika;
 import org.example.wxbot.config.AiConfig;
+import org.example.wxbot.common.log.LogStreamManager;
 import org.example.wxbot.entity.UserAi;
 import org.example.wxbot.entity.UserLibrary;
 import org.example.wxbot.exception.BusinessException;
@@ -60,6 +61,8 @@ public class AiService {
     private LibraryManager libraryManager;
     @Autowired
     private StringRedisTemplate redisTemplate;
+    @Autowired
+    private LogStreamManager logStreamManager;
 
     public void aiResponse(Integer userId, String msg, byte[] image, Consumer<String> onMessage) {
         String text = msg == null ? "" : msg.trim();
@@ -186,6 +189,7 @@ public class AiService {
                 redisTemplate.expireAt(tokensTodayKey, nextMidnight);
                 redisTemplate.expireAt(chatTodayKey, nextMidnight);
             }
+            logStreamManager.publishUsage(userId);
         } catch (Exception exception) {
             log.warn("累计总 Token 消耗失败", exception);
         }

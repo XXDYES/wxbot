@@ -1,6 +1,7 @@
 package org.example.wxbot.service;
 
 import com.github.wechat.ilink.sdk.ILinkClient;
+import lombok.extern.slf4j.Slf4j;
 import org.example.wxbot.util.ChatHistoryUtil;
 import org.example.wxbot.util.ImageUtil;
 import org.springframework.stereotype.Service;
@@ -9,8 +10,19 @@ import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class BotCommandService {
+
+    private static final String HELP_TEXT = """
+            当前可用命令（不区分大小写）：
+            /help - 查看命令列表
+            /reload - 清空当前对话上下文
+            /usage 或 /token - 查看今日和历史 Token 消耗
+            /AI - 查看当前模型和思考强度
+            /fly - 开启飞行模式
+            /genshin 或 /原神 - 懂你意思
+            """.strip();
 
     private final ChatHistoryUtil chatHistoryUtil;
     private final AiService aiService;
@@ -42,7 +54,10 @@ public class BotCommandService {
                 .split("\\s+", 2)[0]
                 .toLowerCase(Locale.ROOT);
 
+        log.info("执行命令 | userId={} | command:/{}", userId, command);
+
         switch (command) {
+            case "help" -> client.sendText(fromUserId, HELP_TEXT);
             case "reload" -> {
                 chatHistoryUtil.clear(userId);
                 client.sendText(fromUserId, "命令已执行：上下文已经清空");

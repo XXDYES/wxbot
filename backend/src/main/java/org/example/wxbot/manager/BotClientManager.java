@@ -148,6 +148,35 @@ public class BotClientManager implements ApplicationRunner {
         }
     }
 
+    public void unbind(Integer userId) {
+        if (userId == null) {
+            throw new BusinessException("用户 ID 不能为空");
+        }
+
+        try {
+            userBotMapper.deleteByUserId(userId);
+        } catch (Exception exception) {
+            log.error("删除机器人绑定信息失败 | userId={}", userId, exception);
+            throw new BusinessException("解除机器人绑定失败");
+        }
+
+        ILinkClient client = botClients.remove(userId);
+        if (client != null) {
+            pollingService.stopPolling(userId);
+            try {
+                client.close();
+            } catch (Exception exception) {
+                log.warn("关闭机器人客户端失败 | userId={}", userId, exception);
+            }
+        }
+
+        try {
+            redisTemplate.delete(cursorKey(userId));
+        } catch (Exception exception) {
+            log.warn("清理 Redis cursor 失败 | userId={}", userId, exception);
+        }
+    }
+
     private void restoreAll() {
         try {
             List<UserBot> userBots = userBotMapper.selectList(null);

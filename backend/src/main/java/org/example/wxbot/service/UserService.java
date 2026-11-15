@@ -1,19 +1,18 @@
 package org.example.wxbot.service;
 
 import jakarta.annotation.Resource;
-import org.example.wxbot.entity.Register;
-import org.example.wxbot.entity.User;
-import org.example.wxbot.entity.UserAi;
-import org.example.wxbot.entity.UserLibrary;
+import org.example.wxbot.entity.*;
 import org.example.wxbot.exception.BusinessException;
 import org.example.wxbot.manager.LibraryManager;
 import org.example.wxbot.manager.UserAiManager;
 import org.example.wxbot.mapper.UserAiMapper;
 import org.example.wxbot.mapper.UserLibraryMapper;
 import org.example.wxbot.mapper.UserMapper;
+import org.example.wxbot.mapper.UserTaskMapper;
 import org.example.wxbot.util.EncodeUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -30,6 +29,8 @@ public class UserService {
     private UserLibraryMapper userLibraryMapper;
     @Autowired
     private LibraryManager libraryManager;
+    @Autowired
+    private UserTaskMapper userTaskMapper;
 
     public User login(User user) {
         if (user.getUsername() == null || user.getUsername().isBlank()) {
@@ -50,6 +51,7 @@ public class UserService {
         return dbUser;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void register(Register register) {
         if (register.getUsername() == null || register.getUsername().isBlank()) {
             throw new BusinessException("账号不能为空");
@@ -80,6 +82,23 @@ public class UserService {
             throw new BusinessException("注册失败，数据库插入异常");
         }else{
             userAiManager.createDefault(user.getId());
+            UserLibrary userLibrary = new UserLibrary();
+            userLibrary.setUserId(user.getId());
+            userLibrary.setTitle("原神牛逼");
+            userLibrary.setContent("你说得对，但是《原神》是由米哈游自主研发的一款全新开放世界冒险游戏。" +
+            "游戏发生在一个被称作“提瓦特”的幻想世界，在这里，被神选中的人将被授予“神之眼”，导引元素之力。" +
+            "你将扮演一位名为“旅行者”的神秘角色，在自由的旅行中邂逅性格各异、能力独特的同伴们，和他们一起击败强敌，" +
+            "找回失散的亲人——同时，逐步发掘“原神”的真相。");
+            userLibraryMapper.insert(userLibrary);
+            UserTask userTask = new UserTask();
+            userTask.setUserId(user.getId());
+            userTask.setTaskType(2);
+            userTask.setTaskName("A股大盘");
+            userTask.setCronExpression("0 0 22 * * *");
+            userTask.setStatus(0);
+            userTask.setContent("分析今天的A股大盘走势");
+            userTaskMapper.insert(userTask);
+
         }
     }
 

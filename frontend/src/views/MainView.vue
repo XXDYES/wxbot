@@ -10,8 +10,12 @@
             <!-- 第一列 -->
             <div class="line-item" style="width: 30%;">
                 <div class="tab-base" style="width: 100%;height: 35vh;">
-                    <div style="flex: 0 0 100%;">
+                    <div class="ai-title-row" style="flex: 0 0 100%;">
                         <div class="title">Bot Status</div>
+                        <span class="ai-config-status">
+                            <span class="ai-status-dot"></span>
+                            {{ botConnectionStatus }}
+                        </span>
                     </div>
                     <div style="display: flex;flex-direction: column;gap: 10px;">
                         <el-button class="gradient-button" @click="createBot" style="width: 120px;margin: 0 auto;">
@@ -50,10 +54,11 @@
                         </div>
                     </div>
                 </div>
-                <div class="tab-base" style="flex: 1;width: 100%;margin-top: 20px;">
+                <div class="tab-base bot-manual-card" style="flex: 1;width: 100%;margin-top: 20px;">
                     <div style="width: 100%;">
                         <div class="title">Bot Manual</div>
                     </div>
+                    <BotManualPanel />
                 </div>
             </div>
             <!-- 第二列 -->
@@ -64,21 +69,24 @@
                         <div style="display: flex;gap: 20px;justify-content: center;
                         flex: 1;align-items: center;">
                             <el-tooltip class="box-item" effect="dark" content="测试连接" placement="bottom">
-                                <el-button circle class="switch-button switch-button--green" aria-label="启动">
+                                <el-button circle class="switch-button switch-button--green"
+                                    aria-label="启动" @click="testConnection">
                                     <el-icon>
                                         <Switch />
                                     </el-icon>
                                 </el-button>
                             </el-tooltip>
                             <el-tooltip class="box-item" effect="dark" content="清空上下文" placement="bottom">
-                                <el-button circle class="switch-button switch-button--yellow" aria-label="刷新">
+                                <el-button circle class="switch-button switch-button--yellow"
+                                    aria-label="刷新" @click="clearContext">
                                     <el-icon>
                                         <RefreshRight />
                                     </el-icon>
                                 </el-button>
                             </el-tooltip>
                             <el-tooltip class="box-item" effect="dark" content="解除绑定" placement="bottom">
-                                <el-button circle class="switch-button switch-button--red" aria-label="关闭">
+                                <el-button circle class="switch-button switch-button--red"
+                                    aria-label="解除绑定" :loading="unbinding" @click="unbindBot">
                                     <el-icon>
                                         <SwitchButton />
                                     </el-icon>
@@ -87,10 +95,15 @@
                         </div>
                     </div>
                 </div>
-                <div class="tab-base" style="flex: 1;margin-top: 20px;">
+                <div class="tab-base bot-log-card" style="flex: 1;margin-top: 20px;">
                     <div style="width: 100%;">
                         <div class="title">Bot Log</div>
                     </div>
+                    <LogPanel
+                        :user-id="userInfo.id"
+                        @usage="getUsage"
+                        @connected="getUsage"
+                    />
                 </div>
             </div>
             <!-- 第三列 -->
@@ -152,38 +165,49 @@
                             placeholder="请输入机器人的人设与回复风格" />
                     </div>
 
-                    <LibraryPanel />
+                    <LibraryPanel v-if="userInfo.id !== null" />
 
                     <div class="ai-section ai-schedule-section">
                         <div class="ai-field-head">
-                            <span class="ai-field-label">定时任务</span>
-                            <el-button class="ai-add-button" circle size="small" aria-label="添加定时任务">
+                            <span class="ai-field-label">
+                                定时任务<span class="warning-text">
+                                    (!!!此功能要求24H内主动发送过消息!!!)
+                                </span></span>
+                            <el-button class="ai-add-button" circle size="small"
+                                aria-label="添加定时任务" @click="openCreateTask">
                                 +
                             </el-button>
                         </div>
                         <div class="ai-panel ai-schedule-panel">
-                            <span>暂未配置定时任务</span>
+                            <TaskPanel v-if="userInfo.id !== null" ref="taskPanelRef" />
+                            <span v-else>登录后加载定时任务</span>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        <LoginDialog v-model="loginVisible" />
+        <LoginDialog v-model="loginVisible" @login-success="getUserInfo" />
     </div>
 </template>
 
 <script setup lang="ts">
 import botApi from '@/api/bot';
 import userApi from '@/api/user';
+import BotManualPanel from '@/components/BotManualPanel.vue';
 import LoginDialog from '@/components/LoginDialog.vue';
 import LibraryPanel from '@/components/LibraryPanel.vue';
+import LogPanel from '@/components/LogPanel.vue';
+import TaskPanel from '@/components/TaskPanel.vue';
 import { Switch, RefreshRight, SwitchButton, Edit, Select, CloseBold } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import QrcodeVue from 'qrcode.vue';
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios'
 
-const userInfo = ref({ id: "", username: "" })
+const userInfo = ref<{ id: number | null; username: string }>({
+    id: null,
+    username: ""
+})
 const model = ref("deepseek-v4.1-flash")
 const thinking = ref("none")
 const persona = ref("")
@@ -195,6 +219,12 @@ const chatTimesToday = ref(0)
 const chatTimesHistory = ref(0)
 const tokenToday = ref(0)
 const tokenHistory = ref(0)
+const botConnectionStatus = ref("等待连接测试")
+const unbinding = ref(false)
+const taskPanelRef = ref<{ openCreate: () => void }>()
+const openCreateTask = () => {
+    taskPanelRef.value?.openCreate()
+}
 const formatToken = (value: number) => {
     if (value >= 1_000_000_000) return { value: (value / 1_000_000_000).toFixed(2), unit: 'B' }
     if (value >= 1_000_000) return { value: (value / 1_000_000).toFixed(2), unit: 'M' }
@@ -211,6 +241,60 @@ const createBot = async () => {
         ElMessage.success("二维码已创建")
     }
 }
+const testConnection = async () => {
+    try {
+        const res = await botApi.connectTest()
+        if (res.data.code === '200') {
+            botConnectionStatus.value = `连接状态：${res.data.data}`
+        } else {
+            botConnectionStatus.value = res.data.msg || "连接测试失败"
+        }
+    } catch {
+        botConnectionStatus.value = "连接测试失败"
+    }
+}
+const clearContext = async () => {
+    const res = await botApi.clearContext()
+    if (res.data.code === '200') {
+        ElMessage.success("上下文已清空")
+    } else {
+        ElMessage.error(res.data.msg)
+    }
+}
+const unbindBot = async () => {
+    try {
+        await ElMessageBox.confirm(
+            '解除后当前机器人将停止接收和回复微信消息，重新使用需要再次扫码登录。确定解除绑定吗？',
+            '解除绑定',
+            {
+                type: 'warning',
+                confirmButtonText: '解除绑定',
+                cancelButtonText: '取消',
+                showClose: false,
+                closeOnClickModal: false,
+                customClass: 'unbind-confirm',
+            }
+        )
+    } catch {
+        return
+    }
+
+    unbinding.value = true
+    try {
+        const res = await botApi.unbindBot()
+        if (res.data.code === '200') {
+            qrContent.value = ''
+            botConnectionStatus.value = '已解除绑定'
+            ElMessage.success('机器人绑定已解除')
+        } else {
+            ElMessage.error(res.data.msg || '解除绑定失败')
+        }
+    } catch {
+        // 请求拦截器已统一提示错误。
+    } finally {
+        unbinding.value = false
+    }
+}
 const getUserInfo = async () => {
     try {
         const res = await userApi.getUserInfo()
@@ -222,6 +306,7 @@ const getUserInfo = async () => {
         }
     } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 401) {
+            userInfo.value = { id: null, username: "" }
             loginVisible.value = true
         }
     }
@@ -255,9 +340,11 @@ const setPersona = async(persona: string) => {
 const loginout = () => {
     loginVisible.value = true
     localStorage.removeItem("userToken")
+    userInfo.value = { id: null, username: "" }
 }
 onMounted(() => {
     getUserInfo()
+    testConnection()
 })
 </script>
 
@@ -268,6 +355,8 @@ onMounted(() => {
     flex-wrap: wrap;
     width: 100vw;
     height: 100vh;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .pagehead {
@@ -306,6 +395,9 @@ onMounted(() => {
     flex-wrap: wrap;
     flex: 1;
     width: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     box-sizing: border-box;
     background-color: #f5f6f7;
     background-image:
@@ -355,6 +447,22 @@ onMounted(() => {
     flex-direction: column;
     margin-right: 40px;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.bot-log-card {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.bot-manual-card {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .qrcode-box {
@@ -458,6 +566,70 @@ onMounted(() => {
 .switch-button--red:hover {
     color: #fff;
     background: #e04444;
+}
+
+:global(.unbind-confirm) {
+    width: 400px;
+    max-width: calc(100vw - 32px);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+}
+
+:global(.unbind-confirm .el-message-box__header) {
+    display: flex;
+    justify-content: center;
+    padding: 22px 24px 8px;
+}
+
+:global(.unbind-confirm .el-message-box__title) {
+    width: 100%;
+    color: #303133;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    justify-content: center;
+}
+
+:global(.unbind-confirm .el-message-box__content) {
+    padding: 10px 24px 20px;
+    color: #606266;
+    line-height: 1.65;
+}
+
+:global(.unbind-confirm .el-message-box__btns) {
+    gap: 10px;
+    padding: 14px 24px 20px;
+    border-top: 1px solid #f0f2f5;
+}
+
+:global(.unbind-confirm .el-button) {
+    min-width: 96px;
+    height: 38px;
+    margin: 0;
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+:global(.unbind-confirm .el-button:not(.el-button--primary)) {
+    border: 0;
+    color: #606266;
+    background: #f2f3f5;
+}
+
+:global(.unbind-confirm .el-button--primary) {
+    border: 0;
+    color: #fff;
+    background: linear-gradient(135deg, #f05252, #dc2626);
+    box-shadow: 0 6px 16px rgba(220, 38, 38, 0.22);
+}
+
+:global(.unbind-confirm .el-button--primary:hover) {
+    color: #fff;
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
 }
 
 .ai-settings-card {
@@ -638,6 +810,10 @@ onMounted(() => {
 .ai-schedule-panel {
     flex: 1;
     min-height: 0;
+    display: flex;
+    padding: 0;
+    border: 0;
+    background: transparent;
 }
 
 .gradient-button {
@@ -650,5 +826,13 @@ onMounted(() => {
     border: 0;
     color: #fff;
     background: linear-gradient(135deg, #6366f1, #22d3ee);
+}
+.warning-text{
+    overflow: hidden;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 </style>
