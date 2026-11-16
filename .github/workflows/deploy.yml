@@ -1,0 +1,136 @@
+name: Deploy wxbot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-wxbot-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build backend
+        working-directory: backend
+        run: mvn -B clean package -DskipTests
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Upload artifacts
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          fingerprint: ${{ secrets.SERVER_SSH_FINGERPRINT }}
+          port: 22
+          source: 'backend/target/wxbot-0.0.1-SNAPSHOT.jar,frontend/dist/*'
+          target: '/opt/wxbot/incoming'
+          overwrite: true
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          fingerprint: ${{ secrets.SERVER_SSH_FINGERPRINT }}
+          port: 22
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+
+            INCOMING=/opt/wxbot/incoming
+            APP=/opt/wxbot/wxbot-0.0.1-SNAPSHOT.jar
+            WEB=/var/www/wxbot/dist
+            JAR="$INCOMING/backend/target/wxbot-0.0.1-SNAPSHOT.jar"
+
+            # systemd 的 wxbot 服务必须启用 prod 并设置 SERVER_PORT=8082；
+            # 8081 已由另一个项目使用。反向代理也应指向 8082。
+            test -f "$JAR"
+            test -f "$INCOMING/frontend/dist/index.html"
+            systemctl cat wxbot >/dev/null
+            test ! -e "$WEB.old"
+            test ! -e "$WEB.new"
+            if ! systemctl is-active --quiet wxbot && ss -ltn | grep -qE '(^|[[:space:]])([^[:space:]]+:)?8082[[:space:]]'; then
+              echo '8082 已被占用，停止部署'
+              exit 1
+            fi
+
+            had_app=0
+            had_web=0
+            if [ -f "$APP" ]; then cp "$APP" "$APP.bak"; had_app=1; fi
+            mkdir -p "$(dirname "$WEB")"
+            mkdir "$WEB.new"
+            cp -r "$INCOMING/frontend/dist/." "$WEB.new/"
+            chmod -R a+rX "$WEB.new"
+            install -m 644 "$JAR" "$APP.new"
+            if [ -d "$WEB" ]; then mv "$WEB" "$WEB.old"; had_web=1; fi
+            mv "$APP.new" "$APP"
+            mv "$WEB.new" "$WEB"
+
+            ok=0
+            if sudo -n /usr/bin/systemctl restart wxbot; then
+              for i in $(seq 1 30); do
+                pid=$(systemctl show wxbot -p MainPID --value)
+                if [ "$pid" -gt 0 ] && systemctl is-active --quiet wxbot \
+                  && sudo -n /usr/bin/ss -ltnp | grep -E '127\.0\.0\.1:8082[[:space:]]' | grep -q "pid=$pid," \
+                  && [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8082/userInfo || true)" = 401 ]; then
+                  ok=1
+                  break
+                fi
+                sleep 2
+              done
+            fi
+            if [ "$ok" -ne 1 ]; then
+              echo 'wxbot 启动或健康检查失败，恢复文件'
+              sudo -n /usr/bin/systemctl stop wxbot || true
+              rm -rf "$WEB"
+              if [ "$had_web" -eq 1 ]; then mv "$WEB.old" "$WEB"; fi
+              if [ "$had_app" -eq 1 ]; then
+                cp "$APP.bak" "$APP"
+                sudo -n /usr/bin/systemctl restart wxbot || true
+              else
+                rm -f "$APP"
+              fi
+              journalctl -u wxbot -n 50 --no-pager || true
+              exit 1
+            fi
+
+            rm -rf "$WEB.old"
+            echo 'wxbot 部署完成'

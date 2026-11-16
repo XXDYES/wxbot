@@ -11,6 +11,7 @@ import org.example.wxbot.mapper.UserMapper;
 import org.example.wxbot.mapper.UserTaskMapper;
 import org.example.wxbot.util.EncodeUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -78,7 +79,13 @@ public class UserService {
         User user = new User();
         user.setUsername(register.getUsername());
         user.setPassword(EncodeUtil.encode(register.getPassword()));
-        if (userMapper.insert(user) <= 0) {
+        int inserted;
+        try {
+            inserted = userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException("用户名已经存在");
+        }
+        if (inserted <= 0) {
             throw new BusinessException("注册失败，数据库插入异常");
         }else{
             userAiManager.createDefault(user.getId());
