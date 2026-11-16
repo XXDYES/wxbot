@@ -55,8 +55,13 @@
                     </div>
                 </div>
                 <div class="tab-base bot-manual-card" style="flex: 1;width: 100%;margin-top: 20px;">
-                    <div style="width: 100%;">
+                    <div class="bot-manual-heading">
                         <div class="title">Bot Manual</div>
+                        <a class="source-link" href="https://github.com/XXDYES/wxbot"
+                            target="_blank" rel="noopener noreferrer">
+                            <img :src="githubLogo" alt="" width="18" height="18" />
+                            <span>MIT开源项目</span>
+                        </a>
                     </div>
                     <BotManualPanel />
                 </div>
@@ -203,6 +208,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import QrcodeVue from 'qrcode.vue';
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios'
+import githubLogo from '@/assets/github-logo.png'
 
 const userInfo = ref<{ id: number | null; username: string }>({
     id: null,
@@ -296,13 +302,16 @@ const unbindBot = async () => {
     }
 }
 const getUserInfo = async () => {
+    if (!localStorage.getItem('userToken')) {
+        loginVisible.value = true
+        return
+    }
     try {
         const res = await userApi.getUserInfo()
 
         if (res.data.code === '200') {
             userInfo.value = res.data.data
-            await getAiSetting()
-            await getUsage()
+            await Promise.allSettled([getAiSetting(), getUsage(), testConnection()])
         }
     } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 401) {
@@ -344,7 +353,6 @@ const loginout = () => {
 }
 onMounted(() => {
     getUserInfo()
-    testConnection()
 })
 </script>
 
@@ -463,6 +471,46 @@ onMounted(() => {
     flex-wrap: nowrap;
     min-height: 0;
     overflow: hidden;
+}
+
+.bot-manual-heading {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+.bot-manual-heading .title {
+    margin-bottom: 0;
+}
+
+.source-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.source-link img {
+    display: block;
+    object-fit: contain;
+}
+
+.source-link:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.source-link:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 4px;
+    border-radius: 3px;
 }
 
 .qrcode-box {
