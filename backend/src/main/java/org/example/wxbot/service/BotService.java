@@ -36,10 +36,14 @@ public class BotService {
                 }
                 pollingService.startPolling(client, userId);
             } catch (InterruptedException e) {
-                botClientManager.remove(userId, client);
+                if (client.getLoginContext() == null) {
+                    botClientManager.remove(userId, client);
+                }
                 Thread.currentThread().interrupt();
             }catch (ExecutionException e){
-                botClientManager.remove(userId, client);
+                if (client.getLoginContext() == null) {
+                    botClientManager.remove(userId, client);
+                }
                 log.error("扫码登录失败 | userId={}", userId, e);
             }
         });
