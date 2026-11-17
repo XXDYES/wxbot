@@ -28,12 +28,11 @@ public class BotController {
         Integer userId = UserContext.getCurrentId();
         ILinkClient client = botClientManager.getOrCreate(userId);
         String qrcode = botService.botLogin(client, userId);
-        log.info("成功机器人登录 | userId={}",userId);
         return Result.success(qrcode);
     }
 
     @GetMapping("/connectTest")
-    public Result<ConnectionStatus> connectTest() {
+    public Result<String> connectTest() {
         Integer userId = UserContext.getCurrentId();
         ILinkClient client = botClientManager.get(userId);
         if (client == null) {
@@ -42,8 +41,11 @@ public class BotController {
         }
 
         ConnectionStatus status = client.getConnectionStatus();
-        log.info("连接测试完成 | userId={} | status={}", userId, status);
-        return Result.success(status);
+        String connectionStatus = status == ConnectionStatus.LOGGED_IN
+                || (status == ConnectionStatus.DISCONNECTED && client.getLoginContext() != null)
+                ? "CONNECTED" : status.name();
+        log.info("连接测试完成 | userId={} | status={}", userId, connectionStatus);
+        return Result.success(connectionStatus);
     }
 
     @PostMapping("/clearContext")

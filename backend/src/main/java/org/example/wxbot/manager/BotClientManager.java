@@ -85,8 +85,12 @@ public class BotClientManager implements ApplicationRunner {
     }
 
     public void remove(Integer userId, ILinkClient client) {
-        if (userId != null && client != null) {
-            botClients.remove(userId, client);
+        if (userId != null && client != null && botClients.remove(userId, client)) {
+            try {
+                client.close();
+            } catch (Exception exception) {
+                log.warn("关闭机器人客户端失败 | userId={}", userId, exception);
+            }
         }
     }
 

@@ -47,7 +47,10 @@ public class PollingService {
     public void startPolling(ILinkClient client, Integer userId) {
         botExecutor.submit(() -> {
             Thread pollingThread = Thread.currentThread();
-            pollingThreads.put(userId, pollingThread);
+            Thread previous = pollingThreads.put(userId, pollingThread);
+            if (previous != null) {
+                previous.interrupt();
+            }
             try (MDC.MDCCloseable ignored =
                          MDC.putCloseable("userId", String.valueOf(userId))) {
                 poll(client, userId);
@@ -67,30 +70,38 @@ public class PollingService {
         }
     }
 
-    private void poll(ILinkClient client, Integer userId) {
-        while (!Thread.currentThread().isInterrupted()
+    private boolean isCurrentPolling(ILinkClient client, Integer userId) {
+        return !Thread.currentThread().isInterrupted()
                 && !botClientManager.isShuttingDown()
-                && botClientManager.get(userId) == client) {
+                && botClientManager.get(userId) == client
+                && pollingThreads.get(userId) == Thread.currentThread();
+    }
+
+    private void poll(ILinkClient client, Integer userId) {
+        while (isCurrentPolling(client, userId)) {
                 List<WeixinMessage> messages;
                 try {
                     messages = client.getUpdates();
-                    if (botClientManager.isShuttingDown()
-                            || botClientManager.get(userId) != client) {
+                    if (!isCurrentPolling(client, userId)) {
                         break;
                     }
                     botClientManager.saveUpdatesCursor(userId, client);
                 }catch (SessionExpiredException exception){
+                    if (!isCurrentPolling(client, userId)) {
+                        break;
+                    }
                     log.warn("机器人会话已失效，停止轮询 | userId={}", userId);
                     botClientManager.invalidateSession(userId, client);
                     break;
                 } catch (NotLoginException exception) {
+                    if (!isCurrentPolling(client, userId)) {
+                        break;
+                    }
                     log.error("机器人已掉线", exception);
                     botClientManager.invalidateSession(userId, client);
                     break;
                 } catch (Exception exception) {
-                    if (botClientManager.isShuttingDown()
-                            || Thread.currentThread().isInterrupted()
-                            || botClientManager.get(userId) != client) {
+                    if (!isCurrentPolling(client, userId)) {
                         break;
                     }
                     log.warn("消息拉取失败，3 秒后重试", exception);
@@ -104,6 +115,9 @@ public class PollingService {
                 }
 
                 for (WeixinMessage message : messages) {
+                    if (!isCurrentPolling(client, userId)) {
+                        break;
+                    }
                     try {
                         String fromUserId = message.getFrom_user_id();
                         if (fromUserId == null
